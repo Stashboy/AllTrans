@@ -36,9 +36,6 @@ import android.widget.CheckBox;
 import android.widget.ImageView;
 import android.widget.TextView;
 
-import com.google.firebase.analytics.FirebaseAnalytics;
-
-
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -61,7 +58,6 @@ public class AppListFragment extends Fragment {
     private static SharedPreferences settings;
     private FragmentActivity context;
     private android.widget.ListView listview;
-    private FirebaseAnalytics mFirebaseAnalytics;
 
     @Nullable
     @Override
@@ -74,8 +70,7 @@ public class AppListFragment extends Fragment {
         super.onStart();
         context = this.getActivity();
         //noinspection ConstantConditions
-        settings = this.getActivity().getSharedPreferences("AllTransPref", Context.MODE_PRIVATE);
-        mFirebaseAnalytics = FirebaseAnalytics.getInstance(context);
+        settings = sharedPrefUtils.getSharedPreferences(this.getActivity(), "AllTransPref");
 
 //        if (BuildConfig.DEBUG) {
 //            SharedPreferences.Editor editor = settings.edit();
@@ -120,21 +115,11 @@ public class AppListFragment extends Fragment {
     }
 
     private void fireBaseAnalytics() {
-        mFirebaseAnalytics.setUserProperty("Enabled", String.valueOf(settings.getBoolean("Enabled", false)));
-        mFirebaseAnalytics.setUserProperty("TranslatorProvider", settings.getString("TranslatorProvider", "g"));
-        mFirebaseAnalytics.setUserProperty("TranslateFromLanguage", settings.getString("TranslateFromLanguage", "ko"));
-        mFirebaseAnalytics.setUserProperty("TranslateToLanguage", settings.getString("TranslateToLanguage", "en"));
+        // no-op
     }
 
     private void fireBaseEnabledApps(List<ApplicationInfo> packages) {
-        int count = 0;
-        for (ApplicationInfo applicationInfo : packages) {
-            if (settings.contains(applicationInfo.packageName))
-                count++;
-            else
-                break;
-        }
-        mFirebaseAnalytics.setUserProperty("NumAppsTranslating", String.valueOf(count));
+        // no-op
     }
 
     //TODO: Check this does not mess things up.
@@ -227,12 +212,12 @@ public class AppListFragment extends Fragment {
                     if (checkBox1.isChecked()) {
                         settings.edit().putBoolean(packageName, true).apply();
 
-                        SharedPreferences localSettings = context.getSharedPreferences(packageName, Context.MODE_PRIVATE);
+                        SharedPreferences localSettings = sharedPrefUtils.getSharedPreferences(context, packageName);
                         localSettings.edit().putBoolean("LocalEnabled", true).apply();
                     } else if (settings.contains(packageName)) {
                         settings.edit().remove(packageName).apply();
 
-                        SharedPreferences localSettings = context.getSharedPreferences(packageName, Context.MODE_PRIVATE);
+                        SharedPreferences localSettings = sharedPrefUtils.getSharedPreferences(context, packageName);
                         localSettings.edit().putBoolean("LocalEnabled", false).apply();
                     }
                 }

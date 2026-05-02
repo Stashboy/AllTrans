@@ -50,6 +50,12 @@ public class SetTextHookHandler extends XC_MethodReplacement implements Original
         return !(abc == null || "".equals(abc)) && !abc.matches("^\\s*$");
     }
 
+    private static boolean shouldBypassTranslationForStability(String text) {
+        // React Native screens uses this sentinel while runtime is initializing.
+        // Translating it can crash Discord before JS runtime is ready.
+        return "FontSize123!#$".equals(text);
+    }
+
     public void callOriginalMethod(CharSequence translatedString, Object userData) {
 
         MethodHookParam methodHookParam = (MethodHookParam) userData;
@@ -133,6 +139,12 @@ public class SetTextHookHandler extends XC_MethodReplacement implements Original
         }
 
         if (!isNotWhiteSpace(stringArgs)) {
+            callOriginalMethod(stringArgs, methodHookParam);
+            return null;
+        }
+
+        if (shouldBypassTranslationForStability(stringArgs)) {
+            utils.debugLog("Skipping translation for startup sentinel text: " + stringArgs);
             callOriginalMethod(stringArgs, methodHookParam);
             return null;
         }

@@ -79,7 +79,7 @@ public class NotificationHookHandler extends XC_MethodReplacement implements Ori
             }
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
                 Person senderPerson = bundle.getParcelable("sender_person");
-                if (senderPerson != null && senderPerson.getName() == originalString) {
+                if (senderPerson != null && Objects.equals(senderPerson.getName(), originalString)) {
                     Person newPerson = senderPerson.toBuilder().setName(translatedString).build();
                     bundle.putParcelable("sender_person", newPerson);
                 }
@@ -240,7 +240,7 @@ public class NotificationHookHandler extends XC_MethodReplacement implements Ori
             if (notification.extras.containsKey(Notification.EXTRA_MESSAGING_PERSON)) {
                 Person person = notification.extras.getParcelable(Notification.EXTRA_MESSAGING_PERSON);
                 if (person != null) {
-                    if (person.getName() == originalString) {
+                    if (Objects.equals(person.getName(), originalString)) {
                         Person newPerson = person.toBuilder().setName(translatedString).build();
                         notification.extras.putParcelable(Notification.EXTRA_MESSAGING_PERSON, newPerson);
                     }
@@ -251,7 +251,7 @@ public class NotificationHookHandler extends XC_MethodReplacement implements Ori
                 ArrayList<Person> newPeople = new ArrayList<>();
                 if (people != null) {
                     for (Person person : people) {
-                        if (person.getName() == originalString) {
+                        if (Objects.equals(person.getName(), originalString)) {
                             Person newPerson = person.toBuilder().setName(translatedString).build();
                             newPeople.add(newPerson);
                         } else {

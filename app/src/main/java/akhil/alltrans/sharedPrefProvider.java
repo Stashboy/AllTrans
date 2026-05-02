@@ -21,7 +21,6 @@ package akhil.alltrans;
 
 import android.content.ContentProvider;
 import android.content.ContentValues;
-import android.content.Context;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.database.MatrixCursor;
@@ -47,14 +46,14 @@ public class sharedPrefProvider extends ContentProvider {
         MatrixCursor cursor = new MatrixCursor(cols);
 
         //noinspection ConstantConditions
-        SharedPreferences globalPref = this.getContext().getSharedPreferences("AllTransPref", Context.MODE_PRIVATE);
+        SharedPreferences globalPref = sharedPrefUtils.getSharedPreferences(this.getContext(), "AllTransPref");
         MatrixCursor.RowBuilder builder = cursor.newRow();
         String globalPrefGson = new Gson().toJson(globalPref.getAll());
         builder.add(globalPrefGson);
         utils.debugLog("Got globalpref as - " + globalPrefGson + " for package " + packageName);
         utils.debugLog("Got boolean as - " + globalPref.getBoolean(packageName, false) + " for package " + packageName);
         if (globalPref.getBoolean(packageName, false)) {
-            String localPrefGson = new Gson().toJson(this.getContext().getSharedPreferences(packageName, Context.MODE_PRIVATE).getAll());
+            String localPrefGson = new Gson().toJson(sharedPrefUtils.getSharedPreferences(this.getContext(), packageName).getAll());
             utils.debugLog("Got localpref as - " + localPrefGson + " for package " + packageName);
             builder = cursor.newRow();
             builder.add(localPrefGson);

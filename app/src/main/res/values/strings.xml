@@ -61,7 +61,6 @@
 
 
     <!-- Categories Translate Settings -->
-     translator_provider
     <string name="translator_provider">"Translation Service Provider"</string>
     <string name="translator_provider_summary">"Select which Translation Service to use - Google, Microsoft, or Yandex"</string>
     <string name="translator_provider_google">"\nGoogle - This translation works offline, after initial download of around 30-60 MB. Translations are slow, makes apps \"lag\" or \"hang\" a bit. No need for any API key. Free.\n"</string>

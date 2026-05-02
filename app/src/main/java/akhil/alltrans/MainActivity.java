@@ -26,7 +26,6 @@ import android.view.View;
 
 import com.codemybrainsout.ratingdialog.RatingDialog;
 import com.google.android.material.tabs.TabLayout;
-import com.google.firebase.analytics.FirebaseAnalytics;
 import com.google.gson.Gson;
 
 import org.jetbrains.annotations.NotNull;
@@ -50,8 +49,6 @@ import okhttp3.Response;
 
 public class MainActivity extends FragmentActivity implements View.OnClickListener {
     //public static String TAG = "alltrans";
-    @SuppressWarnings({"FieldCanBeLocal", "unused"})
-    private FirebaseAnalytics mFirebaseAnalytics;
     private static String uniqueID = null;
 
     @Override
@@ -64,6 +61,7 @@ public class MainActivity extends FragmentActivity implements View.OnClickListen
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        sharedPrefUtils.syncPrivateToWorldReadable(getApplicationContext(), "AllTransPref");
 
         final RatingDialog ratingDialog = new RatingDialog.Builder(this)
                 .threshold(4)
@@ -80,8 +78,8 @@ public class MainActivity extends FragmentActivity implements View.OnClickListen
                     public void onFormSubmitted(String feedback) {
                         try {
                             if (uniqueID == null) {
-                                SharedPreferences sharedPrefs = getApplicationContext().getSharedPreferences(
-                                        "PREF_UNIQUE_ID", Context.MODE_PRIVATE);
+                                SharedPreferences sharedPrefs = sharedPrefUtils.getSharedPreferences(
+                                        getApplicationContext(), "PREF_UNIQUE_ID");
                                 uniqueID = sharedPrefs.getString("PREF_UNIQUE_ID", null);
                                 if (uniqueID == null) {
                                     uniqueID = UUID.randomUUID().toString();
@@ -123,13 +121,8 @@ public class MainActivity extends FragmentActivity implements View.OnClickListen
 
         ratingDialog.show();
 
-        SharedPreferences settings = this.getSharedPreferences("AllTransPref", MODE_PRIVATE);
+        SharedPreferences settings = sharedPrefUtils.getSharedPreferences(this, "AllTransPref");
         utils.Debug = settings.getBoolean("Debug", false);
-
-        boolean anonCollection = settings.getBoolean("Anon", true);
-        mFirebaseAnalytics = FirebaseAnalytics.getInstance(this);
-        utils.debugLog("Is Debug Logging enabled" + anonCollection);
-        mFirebaseAnalytics.setAnalyticsCollectionEnabled(anonCollection);
 
         setContentView(R.layout.activity_main);
         getSupportFragmentManager().beginTransaction()

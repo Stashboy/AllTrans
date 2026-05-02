@@ -27,6 +27,7 @@ import android.content.ContextWrapper;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Binder;
+import android.os.Bundle;
 import android.util.Log;
 
 import java.lang.reflect.Method;
@@ -50,6 +51,8 @@ public class alltrans implements IXposedHookLoadPackage {
     @SuppressLint("StaticFieldLeak")
     public static final NotificationHookHandler notifyHook = new NotificationHookHandler();
     @SuppressLint("StaticFieldLeak")
+    public static final ToastHookHandler toastHook = new ToastHookHandler();
+    @SuppressLint("StaticFieldLeak")
     public static final VirtWebViewOnLoad virtWebViewOnLoad = new VirtWebViewOnLoad();
     public static HashMap<String, String> cache = new HashMap<>();
     @SuppressLint("StaticFieldLeak")
@@ -57,15 +60,31 @@ public class alltrans implements IXposedHookLoadPackage {
     public static Context context = null;
     public static Class baseRecordingCanvas = null;
     public static boolean settingsHooked = false;
+    private static final String SETTINGS_PROXY_CALL_METHOD_PREF = "alltransProxyProviderURI";
+    private static final String SETTINGS_PROXY_CALL_METHOD_TRANSLATE = "alltransProxyTranslate";
+    private static final String SETTINGS_PROXY_BUNDLE_PACKAGE = "alltrans_package_name";
+    private static final String SETTINGS_PROXY_BUNDLE_GLOBAL = "alltrans_global_pref";
+    private static final String SETTINGS_PROXY_BUNDLE_LOCAL = "alltrans_local_pref";
+    private static final String SETTINGS_PROXY_BUNDLE_FROM = "alltrans_from_lang";
+    private static final String SETTINGS_PROXY_BUNDLE_TO = "alltrans_to_lang";
+    private static final String SETTINGS_PROXY_BUNDLE_TEXT = "alltrans_text";
+    private static final String SETTINGS_PROXY_BUNDLE_TRANSLATION = "alltrans_translation";
 
 
     public void handleLoadPackage(final LoadPackageParam lpparam) throws Throwable {
 
-        if ("com.android.providers.settings".equals(lpparam.packageName)) {
-            XposedBridge.log("AllTrans: got settings provider package ");
+        if ("com.android.providers.settings".equals(lpparam.packageName)
+                || "android".equals(lpparam.packageName)
+                || "system".equals(lpparam.packageName)) {
+            XposedBridge.log("AllTrans: got settings provider host package " + lpparam.packageName);
             if (!settingsHooked) {
-                hookSettings(lpparam);
-                settingsHooked = true;
+                try {
+                    hookSettings(lpparam);
+                    settingsHooked = true;
+                } catch (Throwable e) {
+                    XposedBridge.log("AllTrans: settings hook install failed in host " + lpparam.packageName);
+                    XposedBridge.log(Log.getStackTraceString(e));
+                }
             }
         }
 
@@ -95,14 +114,14 @@ public class alltrans implements IXposedHookLoadPackage {
         // https://android.googlesource.com/platform/frameworks/base/+/master/packages/SettingsProvider/src/com/android/providers/settings/SettingsProvider.java
         @SuppressLint("PrivateApi") Class<?> clsSet = Class.forName("com.android.providers.settings.SettingsProvider", false, lpparam.classLoader);
 
-        XposedBridge.log("AllTrans: Got method to hook settings ");
-        // Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs, String sortOrder)
-        Method mQuery = clsSet.getMethod("query", Uri.class, String[].class, String.class, String[].class, String.class);
-        XposedBridge.hookMethod(mQuery, new XC_MethodHook() {
+        XposedBridge.log("AllTrans: Hooking all query overloads in settings provider ");
+        XposedBridge.hookAllMethods(clsSet, "query", new XC_MethodHook() {
             @Override
             protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                XposedBridge.log("beforeHookedMethod mQuery Settings: ");
                 try {
+                    if (param.args == null || param.args.length == 0 || !(param.args[0] instanceof Uri)) {
+                        return;
+                    }
                     Uri uri = (Uri) param.args[0];
                     if (uri.toString().contains("alltransProxyProviderURI")){
 
@@ -119,15 +138,183 @@ public class alltrans implements IXposedHookLoadPackage {
                             String new_uri_string = uri.toString().replace("content://settings/system/alltransProxyProviderURI/", "content://akhil.alltrans.");
                             Uri new_uri = Uri.parse(new_uri_string);
                             XposedBridge.log("AllTrans: New URI " + new_uri.toString());
-                            
+
                             Cursor cursor = context.getContentResolver().query(new_uri, null, null, null, null);
                             param.setResult(cursor);
 
-                            XposedHelpers.callStaticMethod(Binder.class, "defaultBlockingForCurrentThread");
                             XposedBridge.log("AllTrans: setting query result");
                         } catch (Throwable ex) {
                             XposedBridge.log(Log.getStackTraceString(ex));
                             param.setResult(null);
+                        } finally {
+                            try {
+                                XposedHelpers.callStaticMethod(Binder.class, "defaultBlockingForCurrentThread");
+                            } catch (Throwable ignored) {
+                            }
+                            Binder.restoreCallingIdentity(ident);
+                        }
+                    }
+                } catch (Throwable ex) {
+                    XposedBridge.log(Log.getStackTraceString(ex));
+                }
+            }
+        });
+
+        XposedBridge.log("AllTrans: Hooking all call overloads in settings provider ");
+        XposedBridge.hookAllMethods(clsSet, "call", new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                try {
+                    if (param.args == null) {
+                        return;
+                    }
+
+                    String methodName = null;
+                    String packageName = null;
+                    Bundle extras = null;
+
+                    for (int i = 0; i < param.args.length; i++) {
+                        Object arg = param.args[i];
+                        if (!(arg instanceof String)) {
+                            continue;
+                        }
+                        String stringArg = (String) arg;
+                        if (!SETTINGS_PROXY_CALL_METHOD_PREF.equals(stringArg)
+                                && !SETTINGS_PROXY_CALL_METHOD_TRANSLATE.equals(stringArg)) {
+                            continue;
+                        }
+                        methodName = stringArg;
+                        // Method signature can be [method, arg, extras] or [authority, method, arg, extras].
+                        int argIndex = i + 1;
+                        if (argIndex < param.args.length && param.args[argIndex] instanceof String) {
+                            packageName = (String) param.args[argIndex];
+                        }
+                        int extrasIndex = i + 2;
+                        if (extrasIndex < param.args.length && param.args[extrasIndex] instanceof Bundle) {
+                            extras = (Bundle) param.args[extrasIndex];
+                        }
+                        break;
+                    }
+
+                    if (methodName == null) {
+                        return;
+                    }
+
+                    if (SETTINGS_PROXY_CALL_METHOD_PREF.equals(methodName)) {
+                        if ((packageName == null || packageName.isEmpty()) && extras != null) {
+                            packageName = extras.getString(SETTINGS_PROXY_BUNDLE_PACKAGE);
+                        }
+                        if (packageName == null || packageName.isEmpty()) {
+                            return;
+                        }
+
+                        long ident = Binder.clearCallingIdentity();
+                        try {
+                            Method mGetContext = param.thisObject.getClass().getMethod("getContext");
+                            Context context = (Context) mGetContext.invoke(param.thisObject);
+
+                            XposedHelpers.callStaticMethod(Binder.class, "allowBlockingForCurrentThread");
+                            Uri newUri = Uri.parse("content://akhil.alltrans.sharedPrefProvider/" + packageName);
+                            Cursor cursor = context.getContentResolver().query(newUri, null, null, null, null);
+                            if (cursor == null || !cursor.moveToFirst()) {
+                                if (cursor != null) {
+                                    cursor.close();
+                                }
+                                param.setResult(null);
+                                return;
+                            }
+
+                            int columnIndex = cursor.getColumnIndex("sharedPreferences");
+                            if (columnIndex < 0) {
+                                cursor.close();
+                                param.setResult(null);
+                                return;
+                            }
+                            String globalPref = cursor.getString(columnIndex);
+                            String localPref = globalPref;
+                            if (cursor.moveToNext()) {
+                                columnIndex = cursor.getColumnIndex("sharedPreferences");
+                                if (columnIndex >= 0) {
+                                    localPref = cursor.getString(columnIndex);
+                                }
+                            }
+                            cursor.close();
+
+                            Bundle out = new Bundle();
+                            out.putString(SETTINGS_PROXY_BUNDLE_GLOBAL, globalPref);
+                            out.putString(SETTINGS_PROXY_BUNDLE_LOCAL, localPref);
+                            param.setResult(out);
+                        } catch (Throwable ex) {
+                            XposedBridge.log(Log.getStackTraceString(ex));
+                            param.setResult(null);
+                        } finally {
+                            try {
+                                XposedHelpers.callStaticMethod(Binder.class, "defaultBlockingForCurrentThread");
+                            } catch (Throwable ignored) {
+                            }
+                            Binder.restoreCallingIdentity(ident);
+                        }
+                        return;
+                    }
+
+                    if (SETTINGS_PROXY_CALL_METHOD_TRANSLATE.equals(methodName)) {
+                        if (extras == null) {
+                            param.setResult(null);
+                            return;
+                        }
+                        String fromLanguage = extras.getString(SETTINGS_PROXY_BUNDLE_FROM, "auto");
+                        String toLanguage = extras.getString(SETTINGS_PROXY_BUNDLE_TO, "en");
+                        String sourceText = extras.getString(SETTINGS_PROXY_BUNDLE_TEXT);
+                        if (sourceText == null || sourceText.isEmpty()) {
+                            param.setResult(null);
+                            return;
+                        }
+
+                        long ident = Binder.clearCallingIdentity();
+                        try {
+                            Method mGetContext = param.thisObject.getClass().getMethod("getContext");
+                            Context context = (Context) mGetContext.invoke(param.thisObject);
+
+                            XposedHelpers.callStaticMethod(Binder.class, "allowBlockingForCurrentThread");
+                            Uri uri = new Uri.Builder()
+                                    .scheme("content")
+                                    .authority("akhil.alltrans.gtransProvider")
+                                    .appendQueryParameter("from", fromLanguage)
+                                    .appendQueryParameter("to", toLanguage)
+                                    .appendQueryParameter("text", sourceText)
+                                    .build();
+                            Cursor cursor = context.getContentResolver().query(uri, null, null, null, null);
+                            if (cursor == null || !cursor.moveToFirst()) {
+                                if (cursor != null) {
+                                    cursor.close();
+                                }
+                                param.setResult(null);
+                                return;
+                            }
+
+                            int columnIndex = cursor.getColumnIndex("translate");
+                            if (columnIndex < 0) {
+                                cursor.close();
+                                param.setResult(null);
+                                return;
+                            }
+                            String translated = cursor.getString(columnIndex);
+                            cursor.close();
+                            if (translated == null) {
+                                param.setResult(null);
+                                return;
+                            }
+                            Bundle out = new Bundle();
+                            out.putString(SETTINGS_PROXY_BUNDLE_TRANSLATION, translated);
+                            param.setResult(out);
+                        } catch (Throwable ex) {
+                            XposedBridge.log(Log.getStackTraceString(ex));
+                            param.setResult(null);
+                        } finally {
+                            try {
+                                XposedHelpers.callStaticMethod(Binder.class, "defaultBlockingForCurrentThread");
+                            } catch (Throwable ignored) {
+                            }
                             Binder.restoreCallingIdentity(ident);
                         }
                     }

@@ -48,7 +48,7 @@
 
         <ListPreference
             app:iconSpaceReserved="false"
-            android:defaultValue="ko"
+            android:defaultValue="auto"
             android:entries="@array/languageNames"
             android:entryValues="@array/languageCodes"
             android:key="TranslateFromLanguage"

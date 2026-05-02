@@ -19,8 +19,11 @@
 
 package akhil.alltrans;
 
+import android.content.ContentResolver;
+import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -45,6 +48,13 @@ import okhttp3.ResponseBody;
 
 //class GetTranslateToken implements Callback {
 class GetTranslateToken {
+    private static final String MODULE_PACKAGE = "akhil.alltrans";
+    private static final String SETTINGS_PROXY_CALL_URI = "content://settings/system";
+    private static final String SETTINGS_PROXY_CALL_METHOD_TRANSLATE = "alltransProxyTranslate";
+    private static final String SETTINGS_PROXY_BUNDLE_FROM = "alltrans_from_lang";
+    private static final String SETTINGS_PROXY_BUNDLE_TO = "alltrans_to_lang";
+    private static final String SETTINGS_PROXY_BUNDLE_TEXT = "alltrans_text";
+    private static final String SETTINGS_PROXY_BUNDLE_TRANSLATION = "alltrans_translation";
     private static final Semaphore available = new Semaphore(1, true);
     //    private static String userCredentials;
 //    private static long lastExpireTime = 0;
@@ -107,28 +117,38 @@ class GetTranslateToken {
 
         try {
             if (PreferenceList.TranslatorProvider.equals("g")){
-
+                String fromLanguage = PreferenceList.TranslateFromLanguage;
+                String toLanguage = PreferenceList.TranslateToLanguage;
+                if (fromLanguage == null || fromLanguage.trim().isEmpty()) {
+                    fromLanguage = "auto";
+                }
+                if (toLanguage == null || toLanguage.trim().isEmpty()) {
+                    toLanguage = "en";
+                }
 
                 Uri uri = new Uri.Builder().scheme("content")
                         .authority("akhil.alltrans.gtransProvider")
-                        .appendQueryParameter("from", PreferenceList.TranslateFromLanguage)
-                        .appendQueryParameter("to", PreferenceList.TranslateToLanguage)
+                        .appendQueryParameter("from", fromLanguage)
+                        .appendQueryParameter("to", toLanguage)
                         .appendQueryParameter("text", getTranslate.stringToBeTrans).build();
-//                uri = Uri.parse(uri.toString().replace("content://akhil.alltrans.", "content://settings/system/alltransProxyProviderURI/"));
-
-                Cursor cursor = alltrans.context.getContentResolver().query(uri, null, null, null, null);
-                if (cursor == null || !cursor.moveToFirst()) {
+                String translatedSring = null;
+                translatedSring = queryTranslationUsingSettingsCall(fromLanguage, toLanguage, getTranslate.stringToBeTrans);
+                if (translatedSring == null) {
+                    Cursor cursor = queryTranslationCursor(uri);
+                    if (cursor != null && cursor.moveToFirst()) {
+                        int columnIndex = cursor.getColumnIndex("translate");
+                        if (columnIndex >= 0) {
+                            translatedSring = cursor.getString(columnIndex);
+                        }
+                    }
                     if (cursor != null) {
                         cursor.close();
                     }
-                    throw new JSONException("Null or Empty Cursor from Google");
                 }
 
-                int columnIndex = cursor.getColumnIndex("translate");
-                if (columnIndex < 0) {
-                    return;
+                if (translatedSring == null) {
+                    throw new JSONException("Null or Empty Cursor from Google");
                 }
-                final String translatedSring = cursor.getString(columnIndex);
                 Request mockRequest = new Request.Builder().url("https://some-url.com").build();
                 Response response = new Response.Builder()
                         .request(mockRequest)
@@ -138,14 +158,17 @@ class GetTranslateToken {
                         .body(ResponseBody.create(translatedSring, null))
                         .build();
                 getTranslate.onResponse(null, response);
-
-                cursor.close();
             }
             else if (PreferenceList.TranslatorProvider.equals("y")) {
                 String baseURL = "https://translate.yandex.net/api/v1.5/tr/translate?";
                 String keyURL = "key=" + PreferenceList.SubscriptionKey;
                 String textURL = "&text=" + URLEncoder.encode(getTranslate.stringToBeTrans, "UTF-8");
-                String languageURL = "&lang=" + PreferenceList.TranslateFromLanguage + "-" + PreferenceList.TranslateToLanguage;
+                String languageURL;
+                if ("auto".equals(PreferenceList.TranslateFromLanguage)) {
+                    languageURL = "&lang=" + PreferenceList.TranslateToLanguage;
+                } else {
+                    languageURL = "&lang=" + PreferenceList.TranslateFromLanguage + "-" + PreferenceList.TranslateToLanguage;
+                }
                 String fullURL = baseURL + keyURL + textURL + languageURL;
 
                 Request request = new Request.Builder()
@@ -176,11 +199,67 @@ class GetTranslateToken {
                 utils.debugLog("In Thread " + Thread.currentThread().getId() + "  Enqueuing Request for new translation for : " + getTranslate.stringToBeTrans);
                 httpsClient.newCall(request).enqueue(getTranslate);
             }
-        } catch (IOException | JSONException e) {
+        } catch (Throwable e) {
             Log.e("AllTrans", "AllTrans: Got error in getting translation as : " + Log.getStackTraceString(e));
             if (getTranslate.canCallOriginal) {
                 new Handler(Looper.getMainLooper()).postDelayed(() -> getTranslate.originalCallable.callOriginalMethod(getTranslate.stringToBeTrans, getTranslate.userData), PreferenceList.Delay);
             }
+        }
+    }
+
+    private Cursor queryTranslationCursor(Uri directUri) {
+        Cursor cursor = queryCursor(alltrans.context.getContentResolver(), directUri, "direct gtransProvider");
+        if (cursor != null) {
+            return cursor;
+        }
+
+        // Use module context as a package-visibility fallback for Android 11+.
+        return queryWithModuleContext(directUri);
+    }
+
+    private String queryTranslationUsingSettingsCall(String fromLanguage, String toLanguage, String sourceText) {
+        try {
+            Bundle extras = new Bundle();
+            extras.putString(SETTINGS_PROXY_BUNDLE_FROM, fromLanguage);
+            extras.putString(SETTINGS_PROXY_BUNDLE_TO, toLanguage);
+            extras.putString(SETTINGS_PROXY_BUNDLE_TEXT, sourceText);
+            Bundle result = alltrans.context.getContentResolver().call(
+                    Uri.parse(SETTINGS_PROXY_CALL_URI),
+                    SETTINGS_PROXY_CALL_METHOD_TRANSLATE,
+                    null,
+                    extras
+            );
+            if (result == null) {
+                return null;
+            }
+            return result.getString(SETTINGS_PROXY_BUNDLE_TRANSLATION);
+        } catch (Throwable e) {
+            utils.debugLog("Settings call gtrans fallback failed: " + Log.getStackTraceString(e));
+            return null;
+        }
+    }
+
+    private Cursor queryWithModuleContext(Uri uri) {
+        try {
+            Context moduleContext = alltrans.context.createPackageContext(
+                    MODULE_PACKAGE,
+                    Context.CONTEXT_IGNORE_SECURITY | Context.CONTEXT_INCLUDE_CODE
+            );
+            return moduleContext.getContentResolver().query(uri, null, null, null, null);
+        } catch (Throwable e) {
+            utils.debugLog("Module-context gtrans query failed for uri=" + uri + " error="
+                    + Log.getStackTraceString(e));
+            return null;
+        }
+    }
+
+    private Cursor queryCursor(ContentResolver resolver, Uri uri, String strategyLabel) {
+        try {
+            return resolver.query(uri, null, null, null, null);
+        } catch (Throwable e) {
+            utils.debugLog("gtrans query failed for " + strategyLabel + " uri=" + uri + " error="
+                    + Log.getStackTraceString(e));
+            return null;
         }
     }
 

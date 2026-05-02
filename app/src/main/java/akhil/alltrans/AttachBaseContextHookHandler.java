@@ -28,11 +28,15 @@ import android.graphics.Path;
 import android.graphics.text.MeasuredText;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.TextView;
+import android.widget.Toast;
+
+import com.google.gson.Gson;
 
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -42,11 +46,134 @@ import java.util.HashMap;
 import java.util.Map;
 
 import de.robv.android.xposed.XC_MethodHook;
+import de.robv.android.xposed.XSharedPreferences;
 
 import static de.robv.android.xposed.XposedBridge.hookAllMethods;
 import static de.robv.android.xposed.XposedHelpers.findAndHookConstructor;
 
 class AttachBaseContextHookHandler extends XC_MethodHook {
+
+    private static final String MODULE_PACKAGE = "akhil.alltrans";
+    private static final String GLOBAL_PREF_FILE = "AllTransPref";
+    private static final String SETTINGS_PROXY_CALL_URI = "content://settings/system";
+    private static final String SETTINGS_PROXY_CALL_METHOD = "alltransProxyProviderURI";
+    private static final String SETTINGS_PROXY_BUNDLE_PACKAGE = "alltrans_package_name";
+    private static final String SETTINGS_PROXY_BUNDLE_GLOBAL = "alltrans_global_pref";
+    private static final String SETTINGS_PROXY_BUNDLE_LOCAL = "alltrans_local_pref";
+
+    private static Cursor queryPreferencesCursor(Context context, String packageName) {
+        Uri directUri = Uri.parse("content://akhil.alltrans.sharedPrefProvider/" + packageName);
+        Uri proxyUri = Uri.parse(directUri.toString()
+                .replace("content://akhil.alltrans.", "content://settings/system/alltransProxyProviderURI/"));
+        Cursor cursor = queryCursorSafely(context, proxyUri, "settings proxy");
+        if (cursor != null) {
+            return cursor;
+        }
+
+        // Fallback for environments where package-visibility blocks direct provider lookup from target apps.
+        Cursor moduleContextCursor = queryWithModuleContext(context, directUri);
+        if (moduleContextCursor != null) {
+            return moduleContextCursor;
+        }
+
+        // Fallback for environments where the settings proxy path is unavailable.
+        return queryCursorSafely(context, directUri, "direct sharedPrefProvider");
+    }
+
+    private static Cursor queryWithModuleContext(Context context, Uri uri) {
+        try {
+            Context moduleContext = context.createPackageContext(
+                    MODULE_PACKAGE,
+                    Context.CONTEXT_IGNORE_SECURITY | Context.CONTEXT_INCLUDE_CODE
+            );
+            return moduleContext.getContentResolver().query(uri, null, null, null, null);
+        } catch (Throwable e) {
+            utils.debugLog("Module-context provider query failed for uri=" + uri + " error="
+                    + Log.getStackTraceString(e));
+            return null;
+        }
+    }
+
+    private static String[] queryPreferencesUsingSettingsCall(Context context, String packageName) {
+        try {
+            Bundle extras = new Bundle();
+            extras.putString(SETTINGS_PROXY_BUNDLE_PACKAGE, packageName);
+            Bundle result = context.getContentResolver().call(
+                    Uri.parse(SETTINGS_PROXY_CALL_URI),
+                    SETTINGS_PROXY_CALL_METHOD,
+                    packageName,
+                    extras
+            );
+            if (result == null) {
+                return null;
+            }
+            String globalPref = result.getString(SETTINGS_PROXY_BUNDLE_GLOBAL);
+            if (globalPref == null) {
+                return null;
+            }
+            String localPref = result.getString(SETTINGS_PROXY_BUNDLE_LOCAL, globalPref);
+            utils.debugLog("Loaded preferences using settings call proxy for package " + packageName);
+            return new String[]{globalPref, localPref};
+        } catch (Throwable e) {
+            utils.debugLog("Settings call proxy failed for package " + packageName + " error="
+                    + Log.getStackTraceString(e));
+            return null;
+        }
+    }
+
+    private static String[] readPreferencesUsingXSharedPreferences(String packageName) {
+        try {
+            XSharedPreferences globalPref = new XSharedPreferences(MODULE_PACKAGE, GLOBAL_PREF_FILE);
+            globalPref.reload();
+            Map<String, ?> globalMap = globalPref.getAll();
+            if (globalMap == null || globalMap.isEmpty()) {
+                utils.debugLog("XSharedPreferences global map empty for package " + packageName);
+                return null;
+            }
+
+            String globalPrefJson = new Gson().toJson(globalMap);
+            String localPrefJson = globalPrefJson;
+
+            if (globalPref.getBoolean(packageName, false)) {
+                XSharedPreferences localPref = new XSharedPreferences(MODULE_PACKAGE, packageName);
+                localPref.reload();
+                Map<String, ?> localMap = localPref.getAll();
+                if (localMap != null && !localMap.isEmpty()) {
+                    localPrefJson = new Gson().toJson(localMap);
+                } else {
+                    localPrefJson = "{\"LocalEnabled\":true}";
+                }
+            }
+
+            utils.debugLog("Loaded preferences using XSharedPreferences for package " + packageName);
+            return new String[]{globalPrefJson, localPrefJson};
+        } catch (Throwable e) {
+            utils.debugLog("XSharedPreferences read failed for package " + packageName + " error="
+                    + Log.getStackTraceString(e));
+            return null;
+        }
+    }
+
+    private static Cursor queryCursorSafely(Context context, Uri uri, String strategyLabel) {
+        try {
+            return context.getContentResolver().query(uri, null, null, null, null);
+        } catch (Throwable e) {
+            utils.debugLog("Query failed for " + strategyLabel + " uri=" + uri + " error="
+                    + Log.getStackTraceString(e));
+            return null;
+        }
+    }
+
+    private static void hookToastPipeline() {
+        try {
+            Class<?> notificationProxyClass = Class.forName("android.app.INotificationManager$Stub$Proxy");
+            hookAllMethods(notificationProxyClass, "enqueueTextToast", alltrans.toastHook);
+            hookAllMethods(notificationProxyClass, "enqueueToast", alltrans.toastHook);
+            utils.debugLog("Hooked toast enqueue methods in INotificationManager proxy");
+        } catch (Throwable e) {
+            utils.debugLog("Could not hook toast enqueue methods: " + Log.getStackTraceString(e));
+        }
+    }
 
     @Override
     protected void beforeHookedMethod(MethodHookParam methodHookParam) {
@@ -74,33 +201,46 @@ class AttachBaseContextHookHandler extends XC_MethodHook {
 
     public static void readPrefAndHook(Context context){
         String packageName = context.getPackageName();
-        alltrans.context = context;
         utils.debugLog("Successfully got context for package " + packageName);
+        utils.debugLog(context.getPackageName());
 
-        utils.debugLog(alltrans.context.getPackageName());
-        Uri old_uri = Uri.parse("content://akhil.alltrans.sharedPrefProvider/" + packageName);
-//            old_uri = Uri.parse(old_uri.toString().replace("content://akhil.alltrans.", "content://settings/system/alltransProxyProviderURI/"));
-
-        Cursor cursor = alltrans.context.getContentResolver().query(old_uri, null, null, null, null);
-        if (cursor == null || !cursor.moveToFirst()) {
-            return;
-        }
-        int columnIndex = cursor.getColumnIndex("sharedPreferences");
-        if (columnIndex < 0) {
-            return;
-        }
-        String globalPref = cursor.getString(columnIndex);
+        String globalPref;
         String localPref;
-        if (!cursor.moveToNext()) {
-            localPref = globalPref;
+
+        String[] sharedPrefJson = readPreferencesUsingXSharedPreferences(packageName);
+        if (sharedPrefJson == null) {
+            sharedPrefJson = queryPreferencesUsingSettingsCall(context, packageName);
+        }
+        if (sharedPrefJson != null) {
+            globalPref = sharedPrefJson[0];
+            localPref = sharedPrefJson[1];
         } else {
-            columnIndex = cursor.getColumnIndex("sharedPreferences");
-            if (columnIndex < 0) {
+            Cursor cursor = queryPreferencesCursor(context, packageName);
+            if (cursor == null || !cursor.moveToFirst()) {
+                if (cursor != null) {
+                    cursor.close();
+                }
+                utils.debugLog("Could not read preferences cursor for package " + packageName);
                 return;
             }
-            localPref = cursor.getString(columnIndex);
+            int columnIndex = cursor.getColumnIndex("sharedPreferences");
+            if (columnIndex < 0) {
+                cursor.close();
+                return;
+            }
+            globalPref = cursor.getString(columnIndex);
+            if (!cursor.moveToNext()) {
+                localPref = globalPref;
+            } else {
+                columnIndex = cursor.getColumnIndex("sharedPreferences");
+                if (columnIndex < 0) {
+                    cursor.close();
+                    return;
+                }
+                localPref = cursor.getString(columnIndex);
+            }
+            cursor.close();
         }
-        cursor.close();
         utils.debugLog("Got Global Prefs in the app as" + globalPref);
         utils.debugLog("Got local Prefs in the app as" + localPref);
         PreferenceList.getPref(globalPref, localPref, packageName);
@@ -113,6 +253,7 @@ class AttachBaseContextHookHandler extends XC_MethodHook {
         utils.Debug = PreferenceList.Debug;
 
         utils.debugLog("Alltrans is Enabled for Package " + packageName);
+        alltrans.context = context;
 
 //        Delete Cache if needed
         if (PreferenceList.Caching) {
@@ -183,6 +324,9 @@ class AttachBaseContextHookHandler extends XC_MethodHook {
 
         if (PreferenceList.Notif) {
             hookAllMethods(NotificationManager.class, "notify", alltrans.notifyHook);
+            utils.tryHookMethod(Toast.class, "makeText", Context.class, CharSequence.class, int.class, alltrans.toastHook);
+            utils.tryHookMethod(Toast.class, "setText", CharSequence.class, alltrans.toastHook);
+            hookToastPipeline();
         }
         // hookAllConstructors(RemoteViews.class, alltrans.notifyHook);
 

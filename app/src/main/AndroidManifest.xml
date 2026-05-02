@@ -44,7 +44,10 @@
             android:value="In-app translations anywhere" />
         <meta-data
             android:name="xposedminversion"
-            android:value="82" />
+            android:value="93" />
+        <meta-data
+            android:name="xposedsharedprefs"
+            android:value="true" />
         <meta-data android:name="android.max_aspect"
             android:value="5.0"/>
         <meta-data

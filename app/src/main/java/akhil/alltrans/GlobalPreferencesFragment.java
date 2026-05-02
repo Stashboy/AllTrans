@@ -51,6 +51,20 @@ import androidx.preference.PreferenceManager;
 
 public class GlobalPreferencesFragment extends PreferenceFragmentCompat {
 
+    private CharSequence[] withAutoDetectLanguage(CharSequence[] baseEntries) {
+        CharSequence[] entriesWithAuto = new CharSequence[baseEntries.length + 1];
+        entriesWithAuto[0] = getString(R.string.Auto_detect_micro);
+        System.arraycopy(baseEntries, 0, entriesWithAuto, 1, baseEntries.length);
+        return entriesWithAuto;
+    }
+
+    private CharSequence[] withAutoDetectLanguageCodes(CharSequence[] baseValues) {
+        CharSequence[] valuesWithAuto = new CharSequence[baseValues.length + 1];
+        valuesWithAuto[0] = "auto";
+        System.arraycopy(baseValues, 0, valuesWithAuto, 1, baseValues.length);
+        return valuesWithAuto;
+    }
+
     @SuppressLint("ApplySharedPref")
     private void handleSubProviderChange() {
         ListPreference translatorProvider = findPreference("TranslatorProvider");
@@ -88,6 +102,8 @@ public class GlobalPreferencesFragment extends PreferenceFragmentCompat {
             translateFromLanguage.setEntryValues(R.array.languageCodesYandex);
             translateToLanguage.setEntries(R.array.languageNamesYandex);
             translateToLanguage.setEntryValues(R.array.languageCodesYandex);
+            translateFromLanguage.setVisible(true);
+            translateFromLanguage.setEnabled(true);
             subscriptionKey.setTitle(getString(R.string.subKey_yandex));
             subscriptionKey.setEnabled(true);
         } else if (translatorProviderSelected.equals("m")){
@@ -101,6 +117,8 @@ public class GlobalPreferencesFragment extends PreferenceFragmentCompat {
             translateFromLanguage.setEntryValues(R.array.languageCodes);
             translateToLanguage.setEntries(R.array.languageNames);
             translateToLanguage.setEntryValues(R.array.languageCodes);
+            translateFromLanguage.setVisible(true);
+            translateFromLanguage.setEnabled(true);
             subscriptionKey.setTitle(getString(R.string.subKey_micro));
             subscriptionKey.setEnabled(true);
         } else {
@@ -110,10 +128,16 @@ public class GlobalPreferencesFragment extends PreferenceFragmentCompat {
             assert translateFromLanguage != null;
             assert translateToLanguage != null;
             assert subscriptionKey != null;
-            translateFromLanguage.setEntries(R.array.languageNamesGoogle);
-            translateFromLanguage.setEntryValues(R.array.languageCodesGoogle);
+
+            CharSequence[] googleNames = getResources().getTextArray(R.array.languageNamesGoogle);
+            CharSequence[] googleCodes = getResources().getTextArray(R.array.languageCodesGoogle);
+            translateFromLanguage.setEntries(withAutoDetectLanguage(googleNames));
+            translateFromLanguage.setEntryValues(withAutoDetectLanguageCodes(googleCodes));
             translateToLanguage.setEntries(R.array.languageNamesGoogle);
             translateToLanguage.setEntryValues(R.array.languageCodesGoogle);
+            translateFromLanguage.setValue("auto");
+            translateFromLanguage.setVisible(false);
+            translateFromLanguage.setEnabled(false);
             subscriptionKey.setEnabled(false);
         }
     }
@@ -150,6 +174,9 @@ public class GlobalPreferencesFragment extends PreferenceFragmentCompat {
         assert translatorProvider1 != null;
         String translatorProviderSelected1 = translatorProvider1.getValue();
         if (!translatorProviderSelected1.equals("g")) {
+            return;
+        }
+        if (isFromLanguage && "auto".equals(translateLanguageSelected)) {
             return;
         }
         utils.debugLog("Downloading Translation model for Language " + translateLanguageSelected + " isFromLanguage " + isFromLanguage);
@@ -218,6 +245,7 @@ public class GlobalPreferencesFragment extends PreferenceFragmentCompat {
     @Override
     public void onCreatePreferences(Bundle bundle, String rootKey) {
         PreferenceManager preferenceManager = getPreferenceManager();
+        sharedPrefUtils.setWorldReadableMode(preferenceManager);
         preferenceManager.setSharedPreferencesName("AllTransPref");
         addPreferencesFromResource(R.xml.preferences);
 

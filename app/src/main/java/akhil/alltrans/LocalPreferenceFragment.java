@@ -53,6 +53,20 @@ public class LocalPreferenceFragment extends PreferenceFragmentCompat {
     public ApplicationInfo applicationInfo;
     private SharedPreferences settings;
 
+    private CharSequence[] withAutoDetectLanguage(CharSequence[] baseEntries) {
+        CharSequence[] entriesWithAuto = new CharSequence[baseEntries.length + 1];
+        entriesWithAuto[0] = getString(R.string.Auto_detect_micro);
+        System.arraycopy(baseEntries, 0, entriesWithAuto, 1, baseEntries.length);
+        return entriesWithAuto;
+    }
+
+    private CharSequence[] withAutoDetectLanguageCodes(CharSequence[] baseValues) {
+        CharSequence[] valuesWithAuto = new CharSequence[baseValues.length + 1];
+        valuesWithAuto[0] = "auto";
+        System.arraycopy(baseValues, 0, valuesWithAuto, 1, baseValues.length);
+        return valuesWithAuto;
+    }
+
     private void handleProviderChange(String translatorProviderSelected){
         if (translatorProviderSelected.equals("y")) {
             ListPreference translateFromLanguage = findPreference("TranslateFromLanguage");
@@ -63,6 +77,8 @@ public class LocalPreferenceFragment extends PreferenceFragmentCompat {
             translateFromLanguage.setEntryValues(R.array.languageCodesYandex);
             translateToLanguage.setEntries(R.array.languageNamesYandex);
             translateToLanguage.setEntryValues(R.array.languageCodesYandex);
+            translateFromLanguage.setVisible(true);
+            translateFromLanguage.setEnabled(true);
         } else if (translatorProviderSelected.equals("m")){
             ListPreference translateFromLanguage = findPreference("TranslateFromLanguage");
             ListPreference translateToLanguage = findPreference("TranslateToLanguage");
@@ -72,15 +88,23 @@ public class LocalPreferenceFragment extends PreferenceFragmentCompat {
             translateFromLanguage.setEntryValues(R.array.languageCodes);
             translateToLanguage.setEntries(R.array.languageNames);
             translateToLanguage.setEntryValues(R.array.languageCodes);
+            translateFromLanguage.setVisible(true);
+            translateFromLanguage.setEnabled(true);
         } else {
             ListPreference translateFromLanguage = findPreference("TranslateFromLanguage");
             ListPreference translateToLanguage = findPreference("TranslateToLanguage");
             assert translateFromLanguage != null;
             assert translateToLanguage != null;
-            translateFromLanguage.setEntries(R.array.languageNamesGoogle);
-            translateFromLanguage.setEntryValues(R.array.languageCodesGoogle);
+
+            CharSequence[] googleNames = getResources().getTextArray(R.array.languageNamesGoogle);
+            CharSequence[] googleCodes = getResources().getTextArray(R.array.languageCodesGoogle);
+            translateFromLanguage.setEntries(withAutoDetectLanguage(googleNames));
+            translateFromLanguage.setEntryValues(withAutoDetectLanguageCodes(googleCodes));
             translateToLanguage.setEntries(R.array.languageNamesGoogle);
             translateToLanguage.setEntryValues(R.array.languageCodesGoogle);
+            translateFromLanguage.setValue("auto");
+            translateFromLanguage.setVisible(false);
+            translateFromLanguage.setEnabled(false);
         }
     }
 
@@ -113,10 +137,13 @@ public class LocalPreferenceFragment extends PreferenceFragmentCompat {
 
     private void downloadModel(String translateLanguageSelected, boolean isFromLanguage){
 
-        settings = getContext().getSharedPreferences("AllTransPref", Context.MODE_PRIVATE);
+        settings = sharedPrefUtils.getSharedPreferences(getContext(), "AllTransPref");
         String translatorProvider = settings.getString("TranslatorProvider", "g");
         assert translatorProvider != null;
         if (!translatorProvider.equals("g")) {
+            return;
+        }
+        if (isFromLanguage && "auto".equals(translateLanguageSelected)) {
             return;
         }
         utils.debugLog("Downloading Translation model for Language " + translateLanguageSelected + " isFromLanguage " + isFromLanguage);
@@ -185,7 +212,7 @@ public class LocalPreferenceFragment extends PreferenceFragmentCompat {
     @Override
     public void onCreatePreferences(Bundle bundle, String rootKey) {
         //noinspection ConstantConditions
-        settings = this.getActivity().getSharedPreferences("AllTransPref", Context.MODE_PRIVATE);
+        settings = sharedPrefUtils.getSharedPreferences(this.getActivity(), "AllTransPref");
         if (applicationInfo == null) {
             Context context = getContext();
             CharSequence text = getString(R.string.wut_why_null);
@@ -195,6 +222,7 @@ public class LocalPreferenceFragment extends PreferenceFragmentCompat {
             return;
         }
         final PreferenceManager preferenceManager = getPreferenceManager();
+        sharedPrefUtils.setWorldReadableMode(preferenceManager);
         preferenceManager.setSharedPreferencesName(applicationInfo.packageName);
 
         utils.debugLog("Is it enabled for package " + applicationInfo.packageName + " answer -" + settings.contains(applicationInfo.packageName));

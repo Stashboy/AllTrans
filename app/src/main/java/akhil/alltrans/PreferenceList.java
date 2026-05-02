@@ -56,7 +56,7 @@ class PreferenceList {
         Map<String, Object> lPref = new Gson().fromJson(localPref, new TypeToken<Map<String, Object>>() {
         }.getType());
 
-        Enabled = (boolean) getValue(gPref, "Enabled", false);
+        Enabled = (boolean) getValue(gPref, "Enabled", true);
         LocalEnabled = (boolean) getValue(gPref, packageName, false);
         Debug = (boolean) getValue(gPref, "Debug", false);
 
@@ -69,8 +69,8 @@ class PreferenceList {
             gPref = lPref;
         }
 
-        TranslateFromLanguage = (String) getValue(gPref, "TranslateFromLanguage", "");
-        TranslateToLanguage = (String) getValue(gPref, "TranslateToLanguage", "");
+        TranslateFromLanguage = (String) getValue(gPref, "TranslateFromLanguage", "auto");
+        TranslateToLanguage = (String) getValue(gPref, "TranslateToLanguage", "en");
 
         SetText = (boolean) getValue(gPref, "SetText", true);
         SetHint = (boolean) getValue(gPref, "SetHint", true);
